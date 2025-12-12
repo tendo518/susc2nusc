@@ -1,0 +1,45 @@
+[project]
+name = "nusc-converter"
+version = "0.1.0"
+description = "Convert [SUScape](https://suscape.net) dataset [nuscenes](https://github.com/nutonomy/nuscenes-devkit) format"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "loguru>=0.7.3",
+    "numpy>=1.23,<2",
+    "open3d>=0.18.0",
+    "pillow>=11.0.0",
+    "pydantic>=2.9.2",
+    "pypcd4>=1.1.0",
+    "pyquaternion>=0.9.9",
+    "scipy>=1.14.1",
+    "tyro>=0.8.14",
+]
+
+[project.scripts]
+susc2nusc = "nusc_converter.converter:main"
+nusc_visualize = "nusc_converter.vis:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.optional-dependencies]
+osm = [
+    "osmnx>=2.0.7",
+]
+vis = [
+    "matplotlib>=3.10.8",
+    "nuscenes-devkit>=1.2.0",
+    "rerun-sdk<0.23",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # Pyflakes
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "I",   # isort
+]
