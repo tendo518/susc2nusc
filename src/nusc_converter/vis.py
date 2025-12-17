@@ -13,6 +13,8 @@ import numpy as np
 import rerun as rr
 import rerun.blueprint as rrb
 from nuscenes import nuscenes
+from collections.abc import Sequence
+import math
 
 DESCRIPTION = """
 # nuScenes
@@ -23,8 +25,10 @@ The full source code for this example is available
 [on GitHub](https://github.com/rerun-io/rerun/blob/latest/examples/python/nuscenes_dataset).
 """
 
-EXAMPLE_DIR: Final = pathlib.Path(__file__).parent
-DATASET_DIR: Final = EXAMPLE_DIR.parents[1] / "output/susc_nusc"
+DEFAULT_EXAMPLE_DIR: Final = pathlib.Path(__file__).parent
+DEFAULT_DATASET_DIR: Final = DEFAULT_EXAMPLE_DIR.parents[1] / "output/susc_nusc"
+
+EARTH_RADIUS_METERS = 6.378137e6
 
 # currently need to calculate the color manually
 # see https://github.com/rerun-io/rerun/issues/4409
@@ -33,6 +37,57 @@ norm = matplotlib.colors.Normalize(
     vmin=3.0,
     vmax=75.0,
 )
+
+
+
+def get_coordinate(
+    ref_lat: float, ref_lon: float, bearing: float, dist: float
+) -> tuple[float, float]:
+    """
+    Using a reference coordinate, extract the coordinates of another point in space given its distance and bearing
+    to the reference coordinate. For reference, please see: https://www.movable-type.co.uk/scripts/latlong.html.
+
+    Parameters
+    ----------
+    ref_lat : float
+        Latitude of the reference coordinate in degrees, e.g., 42.3368.
+    ref_lon : float
+        Longitude of the reference coordinate in degrees, e.g., 71.0578.
+    bearing : float
+        The clockwise angle in radians between the target point, reference point, and the axis pointing north.
+    dist : float
+        The distance in meters from the reference point to the target point.
+
+    Returns
+    -------
+    tuple[float, float]
+        A tuple of latitude and longitude.
+
+    """  # noqa: D205
+    lat, lon = math.radians(ref_lat), math.radians(ref_lon)
+    angular_distance = dist / EARTH_RADIUS_METERS
+
+    target_lat = math.asin(
+        math.sin(lat) * math.cos(angular_distance)
+        + math.cos(lat) * math.sin(angular_distance) * math.cos(bearing),
+    )
+    target_lon = lon + math.atan2(
+        math.sin(bearing) * math.sin(angular_distance) * math.cos(lat),
+        math.cos(angular_distance) - math.sin(lat) * math.sin(target_lat),
+    )
+    return math.degrees(target_lat), math.degrees(target_lon)
+
+
+def derive_latlon(
+    refer_geo: tuple[float, float], pose: dict[str, Sequence[float]]
+) -> tuple[float, float]:
+    reference_lat, reference_lon = refer_geo
+    x, y = pose["translation"][:2]
+    bearing = math.atan(x / y)
+    distance = math.sqrt(x**2 + y**2)
+    lat, lon = get_coordinate(reference_lat, reference_lon, bearing, distance)
+
+    return lat, lon
 
 
 def ensure_scene_available(
@@ -249,6 +304,8 @@ def log_annotations(
     annotation_context = [(i, label) for label, i in label2id.items()]
     rr.log("world/anns", rr.AnnotationContext(annotation_context), static=True)
 
+    # TODO log geopoints transfered from ego vehicle to annotations
+
 
 def log_sensor_calibration(
     sample_data: dict[str, Any], nusc: nuscenes.NuScenes
@@ -288,7 +345,7 @@ def main() -> None:
     parser.add_argument(
         "--root-dir",
         type=pathlib.Path,
-        default=DATASET_DIR,
+        default=DEFAULT_DATASET_DIR,
         help="Root directory of nuScenes dataset",
     )
     parser.add_argument(

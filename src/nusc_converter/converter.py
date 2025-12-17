@@ -1,6 +1,7 @@
 import datetime
 import json
 import shutil
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -33,7 +34,7 @@ class Susc2NuscConverter:
             version: NuScenes version string (e.g., v1.0-mini).
             scenes: List of scenes to convert. Supports range format like 'scene-000001_000005' or individual names. None means all scenes.
             fetch_map: Whether to automatically fetch OpenStreetMap data for the processed scenes.
-        """
+        """  # noqa: E501
         self.susc_root = Path(susc_root)
         self.output_root = Path(output_root)
         self.version = version
@@ -124,22 +125,25 @@ class Susc2NuscConverter:
 
     def _initialize_static_tables(self):
         """Initialize Category, Attribute, Visibility, Sensor, Map tables."""
-        # 1. Category (Simplified subset or full standard set)
-        categories = sorted(list(set(self.s2n_category_mapping.values())))
-        for cat_name in categories:
-            if cat_name == "ignore":
+        # 1. Category Table
+        mapped_categories = set()  # ensure no duplicate categories added
+        for susc_cat_name, nusc_cat_name in self.s2n_category_mapping.items():
+            if nusc_cat_name == "ignore":
                 continue
-            token = generate_token(f"category_{cat_name}")
+            if nusc_cat_name in mapped_categories:
+                continue
+            mapped_categories.add(nusc_cat_name)
+            token = generate_token(f"category_{nusc_cat_name}")
             self.tables["category"].append(
                 {
                     "token": token,
-                    "name": cat_name,
-                    "description": f"Mapped from SUScape {cat_name}",
+                    "name": nusc_cat_name,
+                    "description": f"Mapped from SUScape {susc_cat_name}",
                 }
             )
-            self.category_mapping[cat_name] = token
+            self.category_mapping[nusc_cat_name] = token
 
-        # 2. Attribute (Placeholder)
+        # 2. Attribute Table (Placeholder)
         attributes = [
             "vehicle.moving",
             "vehicle.stopped",
@@ -153,7 +157,7 @@ class Susc2NuscConverter:
             )
             self.attribute_mapping[attr] = token
 
-        # 3. Visibility
+        # 3. Visibility Table
         visibilities = ["1", "2", "3", "4"]  # 0-40%, 40-60%, 60-80%, 80-100%
         for vis in visibilities:
             token = generate_token(f"visibility_{vis}")
@@ -162,7 +166,7 @@ class Susc2NuscConverter:
             )
             self.visibility_mapping[vis] = token
 
-        # 4. Sensor
+        # 4. Sensor Table
         sensors = ["LIDAR_TOP"] + list(self.camera_mapping.values())
         for sensor in sensors:
             token = generate_token(f"sensor_{sensor}")
@@ -175,7 +179,7 @@ class Susc2NuscConverter:
             )
             self.sensor_mapping[sensor] = token
 
-        # 5. Map (Placeholder)
+        # 5. Map Table (Placeholder)
         # We don't have map data, but we can create a dummy entry
         self.tables["map"].append(
             {
@@ -187,6 +191,7 @@ class Susc2NuscConverter:
         )
 
     def convert(self):
+        start_time = time.time()
         self._initialize_static_tables()
 
         if self.scenes is None:
@@ -199,6 +204,7 @@ class Susc2NuscConverter:
         self.tables["map"][0]["log_tokens"] = all_log_tokens
 
         self.save_tables()
+        logger.info(f"Total conversion time: {time.time() - start_time:.2f}s")
 
     def process_scene(self, scene_name: str):
         scene_path = self.susc_root / scene_name
@@ -358,7 +364,8 @@ class Susc2NuscConverter:
             trans = T_sv[:3, 3]
             rot_mat = T_sv[:3, :3]
 
-            # P_lidar_new = C @ P_lidar_old = C @ (R_old @ P_sensor + t_old) = (C @ R_old) @ P_sensor + (C @ t_old)
+            # P_lidar_new = C @ P_lidar_old =
+            # C @ (R_old @ P_sensor + t_old) = (C @ R_old) @ P_sensor + (C @ t_old)
             trans = self.coord_transform @ trans
             rot_mat = self.coord_transform @ rot_mat
 
@@ -370,7 +377,7 @@ class Susc2NuscConverter:
                     "token": token,
                     "sensor_token": self.sensor_mapping[nusc_cam],
                     "translation": trans.tolist(),
-                    "rotation": list(quat),  # w, x, y, z
+                    "rotation": quat.elements.tolist(),  # w, x, y, z
                     "camera_intrinsic": [intrinsic[:3], intrinsic[3:6], intrinsic[6:]],
                 }
             )
@@ -380,7 +387,7 @@ class Susc2NuscConverter:
 
     def _process_ego_pose(
         self, scene_path: Path, frame_name: str, timestamp: int, scene_name: str
-    ) -> tuple[str, float, float, float | None, float | None]:
+    ) -> tuple[str, np.ndarray, Quaternion, float | None, float | None]:
         lidar_pose_file = scene_path / "lidar_pose" / f"{frame_name}.json"
         with open(lidar_pose_file) as f:
             lidar_data = LidarPose.model_validate_json(f.read())
@@ -392,10 +399,6 @@ class Susc2NuscConverter:
 
         trans_original = trans_transformed
 
-        # P_global = R_old * P_old + T
-        # P_old = C^T * P_new (since P_new = C * P_old => P_old = C^-1 * P_new. C is rotation, so C^-1 = C^T)
-        # P_global = R_old * (C^T * P_new) + T = (R_old * C^T) * P_new + T
-        # So R_new = R_old * C^T
         rot_mat = rot_transformed @ self.coord_transform.T
 
         quat = Quaternion(matrix=rot_mat)
@@ -405,7 +408,7 @@ class Susc2NuscConverter:
             {
                 "token": token,
                 "timestamp": timestamp,
-                "rotation": list(quat),
+                "rotation": quat.elements.tolist(),
                 "translation": trans_original.tolist(),
             }
         )
@@ -584,7 +587,6 @@ class Susc2NuscConverter:
                 degrees=False,
             )
             mat_susc = r_susc.as_matrix()
-            # R_new = C * R_old
             mat_local_aligned = self.coord_transform @ mat_susc
 
             # 2. Transform Aligned Local to Global using Ego Pose
@@ -609,7 +611,7 @@ class Susc2NuscConverter:
                     "attribute_tokens": [],
                     "translation": pos_global.tolist(),
                     "size": size_orig,
-                    "rotation": list(rot_global_quat),
+                    "rotation": rot_global_quat.elements.tolist(),
                     "prev": "",  # will be filled later
                     "next": "",  # will be filled later
                     "num_lidar_pts": 0,
@@ -633,7 +635,7 @@ class Susc2NuscConverter:
         for rec in self.tables["sample_data"]:
             data_by_sensor[rec["calibrated_sensor_token"]].append(rec)
 
-        for calib_token, recs in data_by_sensor.items():
+        for _calib_token, recs in data_by_sensor.items():
             recs.sort(key=lambda x: x["timestamp"])
             for i in range(len(recs)):
                 if i > 0:
@@ -648,7 +650,7 @@ class Susc2NuscConverter:
 
         sample_time = {s["token"]: s["timestamp"] for s in self.tables["sample"]}
 
-        for inst_token, recs in ann_by_inst.items():
+        for _inst_token, recs in ann_by_inst.items():
             recs.sort(key=lambda x: sample_time.get(x["sample_token"], 0))
 
             for i in range(len(recs)):
@@ -681,7 +683,7 @@ class Susc2NuscConverter:
 
         try:
             logger.info(
-                f"Fetching OSM map for {scene_name} bbox: N{north}, S{south}, E{east}, W{west}..."
+                f"Fetching OSM map for {scene_name} bbox: N{north}, S{south}, E{east}, W{west}..."  # noqa: E501
             )
             # Add a small buffer to the bounding box (e.g., 0.001 degrees ~ 100m)
             buffer = 0.001
