@@ -4,15 +4,16 @@
 
 This project provides tools to convert the **SUScape** dataset into the **NuScenes** format (which can be parsed by [nuscenes-devkit](https://github.com/nutonomy/nuscenes-devkit)). It also includes features to visualize the dataset using [rerun](https://github.com/rerun-io/rerun).
 
-Currently, the converter supports the following components:
+Currently, the converter supports:
 
-- **Sensors** (LiDAR, Camera)
-- **Annotations** (3D bounding boxes)
-  - Visibility, attributes and keyframes picking are not included, as they are not available in SUScape
-- **Calibration** 
-  - The vehicle coordinate system is defined to be identical to the LiDAR coordinate system, following SUScape
+1. **Sensors Data**:
+    - 1 × 128-channel LiDAR and 6 × RGB cameras
+    - RADAR data is currently not converted
+    - SUScape-specific sensors, including 6 infrared (IR) cameras and 4 auxiliary LiDARs, are not converted
+2. **Annotations** (3D bounding boxes): Visibility, attributes and keyframes picking are not included, as they are not available in SUScape
+3. **Calibration**: The vehicle coordinate system is defined to be identical to the LiDAR coordinate system, following SUScape
 
-So the converted NuScenes-formatted dataset is sufficient for most tasks. However, full parity with the official NuScenes dataset is not achievable due to missing or unsupported data in SUScape.
+Converted dataset is sufficient for most tasks. However, full parity with the official NuScenes dataset is not achievable due to missing or unsupported data in SUScape.
 
 ## Installation
 

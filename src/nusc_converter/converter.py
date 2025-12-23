@@ -14,11 +14,13 @@ from pyquaternion import Quaternion
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
-from .utils import (
+from .susc_datamodels import (
     CameraCalibration,
     EgoPose,
-    Label,
     LidarPose,
+    parse_label,
+)
+from .utils import (
     expand_scene_ranges,
     generate_token,
 )
@@ -222,6 +224,7 @@ class Susc2NuscConverter:
 
         lidar_pose_dir = scene_path / "lidar_pose"
         frames = sorted([f.stem for f in lidar_pose_dir.glob("*.json")])
+
         if not frames:
             logger.error(f"No frames found for {scene_name}")
             return
@@ -554,7 +557,7 @@ class Susc2NuscConverter:
             return
 
         with open(label_file) as f:
-            data = Label.model_validate_json(f.read())
+            data = parse_label(f.read())
 
         timestamp = int(float(frame_name) * 1e6)
 

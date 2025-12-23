@@ -33,6 +33,11 @@ vis = [
     "rerun-sdk<0.23",
 ]
 
+[dependency-groups]
+dev = [
+    "ruff>=0.14.9",
+]
+
 [tool.ruff.lint]
 select = [
     "E",   # pycodestyle
